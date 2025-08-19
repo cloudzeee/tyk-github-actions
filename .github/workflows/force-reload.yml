@@ -1,0 +1,33 @@
+name: Force Reload Tyk
+
+on:
+  workflow_dispatch:
+
+jobs:
+  reload:
+    runs-on: self-hosted
+    
+    steps:
+    - name: Force reload Gateway
+      run: |
+        echo "Force reloading Tyk Gateway..."
+        
+        # Hot reload
+        curl -s -X GET \
+          -H "Authorization: ${{ secrets.TYK_LOCAL_API_KEY }}" \
+          "http://localhost:3000/api/reload/group"
+        
+        echo "Reload command sent"
+        
+        # Wait a moment
+        sleep 3
+        
+        # Check gateway status
+        echo "Gateway status:"
+        curl -s "http://localhost:8080/hello" | python3 -m json.tool || echo "Gateway not responding"
+    
+    - name: Restart Tyk services
+      run: |
+        echo "You may need to restart Tyk services manually"
+        echo "If using Docker: docker-compose restart"
+        echo "If using systemd: sudo systemctl restart tyk-gateway tyk-dashboard"
