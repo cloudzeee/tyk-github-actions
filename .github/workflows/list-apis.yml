@@ -1,0 +1,69 @@
+name: List APIs in Tyk
+
+on:
+  workflow_dispatch:
+
+jobs:
+  list-apis:
+    runs-on: self-hosted
+    
+    steps:
+    - name: List all APIs in Tyk
+      run: |
+        echo "Fetching all APIs from Tyk Dashboard..."
+        
+        response=$(curl -s -w "%{http_code}" -o /tmp/apis_list.json \
+          -H "Authorization: ${{ secrets.TYK_LOCAL_API_KEY }}" \
+          "http://localhost:3000/api/apis")
+        
+        http_code=$(tail -n1 <<< "$response")
+        echo "Response Code: $http_code"
+        
+        if [[ $http_code == "200" ]]; then
+          echo "APIs found in Tyk:"
+          echo "=================="
+          cat /tmp/apis_list.json | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    if 'apis' in data and data['apis']:
+        for i, api in enumerate(data['apis'], 1):
+            print(f'{i}. Name: {api.get(\"name\", \"Unknown\")}')
+            print(f'   ID: {api.get(\"api_id\", \"Unknown\")}')
+            print(f'   Listen Path: {api.get(\"proxy\", {}).get(\"listen_path\", \"Unknown\")}')
+            print(f'   Active: {api.get(\"active\", \"Unknown\")}')
+            print(f'   Org ID: {api.get(\"org_id\", \"Unknown\")}')
+            print()
+    else:
+        print('No APIs found or unexpected response format')
+        print('Raw response:')
+        print(json.dumps(data, indent=2))
+except Exception as e:
+    print(f'Error parsing response: {e}')
+    print('Raw response:')
+    print(sys.stdin.read())
+"
+        else
+          echo "Failed to fetch APIs"
+          cat /tmp/apis_list.json
+        fi
+    
+    - name: Check Gateway status
+      run: |
+        echo "Checking Gateway API endpoints..."
+        
+        # Test some common paths that might have been deployed
+        for path in "/direct-api/" "/simple-api/" "/complete-test-api/" "/test-api/"; do
+          echo "Testing: http://localhost:8080$path"
+          response=$(curl -s -w "%{http_code}" -o /dev/null "http://localhost:8080${path}get" 2>/dev/null || echo "000")
+          
+          if [[ $response == "200" ]]; then
+            echo "✅ $path is working"
+          elif [[ $response == "401" ]]; then
+            echo "🔒 $path is working (401 - auth required)"
+          elif [[ $response == "404" ]]; then
+            echo "❌ $path not found"
+          else
+            echo "⚠️  $path returned: $response"
+          fi
+        done
