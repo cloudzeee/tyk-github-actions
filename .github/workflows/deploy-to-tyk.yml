@@ -1,112 +1,32 @@
-name: Deploy to Tyk
+name: Deploy API to Tyk
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'api-definitions/**'
-      - 'policies/**'
-      - '.github/workflows/deploy-to-tyk.yml'
   workflow_dispatch:
 
 jobs:
-  deploy-to-tyk:
+  deploy:
     runs-on: self-hosted
-    
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    
-    - name: Check Tyk services
-      run: |
-        echo "Checking Tyk services..."
-        
-        if curl -f -s http://localhost:3000/hello > /dev/null 2>&1; then
-          echo "✅ Tyk Dashboard is responding"
-        else
-          echo "❌ Tyk Dashboard not responding"
-          exit 1
-        fi
-        
-        if curl -f -s http://localhost:8080/hello > /dev/null 2>&1; then
-          echo "✅ Tyk Gateway is responding"  
-        else
-          echo "❌ Tyk Gateway not responding"
-          exit 1
-        fi
-    
-    - name: Validate API definitions
-      run: |
-        echo "Validating API definitions..."
-        
-        if ! ls api-definitions/*.json 1> /dev/null 2>&1; then
-          echo "No API definitions found"
-          exit 0
-        fi
-        
-        for file in api-definitions/*.json; do
-          echo "Validating $(basename $file)..."
-          if python3 -m json.tool "$file" > /dev/null 2>&1; then
-            echo "✅ $(basename $file) is valid"
-          else
-            echo "❌ $(basename $file) is invalid"
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Deploy simple-api to Tyk
+        run: |
+          echo "Starting API deployment..."
+          echo "Deploying simple-api..."
+          
+          RESPONSE=$(curl -s -o response.json -w "%{http_code}" \
+            -H "Authorization: $TYK_AUTH" \
+            -H "Content-Type: application/json" \
+            -X POST http://localhost:3000/api/apis \
+            -d @simple-api.json)
+
+          echo "Response Code: $RESPONSE"
+          cat response.json
+
+          if [ "$RESPONSE" -ne 200 ]; then
+            echo "❌ Failed to deploy simple-api"
             exit 1
           fi
-        done
-    
-    - name: Deploy APIs to Tyk
-      run: |
-        echo "Starting API deployment..."
-        
-        for file in api-definitions/*.json; do
-          if [ -f "$file" ]; then
-            api_name=$(basename "$file" .json)
-            echo "Deploying $api_name..."
-            
-            temp_file=$(mktemp)
-            if [ -n "${{ secrets.TYK_LOCAL_ORG_ID }}" ]; then
-              sed "s/REPLACE_WITH_YOUR_ORG_ID/${{ secrets.TYK_LOCAL_ORG_ID }}/g" "$file" > "$temp_file"
-            else
-              cp "$file" "$temp_file"
-            fi
-            
-            response=$(curl -s -w "%{http_code}" -o /tmp/deploy_response.json \
-              -X POST \
-              -H "Authorization: ${{ secrets.TYK_LOCAL_API_KEY }}" \
-              -H "Content-Type: application/json" \
-              -d @"$temp_file" \
-              "http://localhost:3000/api/apis")
-            
-            http_code=$(tail -n1 <<< "$response")
-            
-            echo "Response Code: $http_code"
-            cat /tmp/deploy_response.json
-            
-            if [[ $http_code == "200" || $http_code == "201" ]]; then
-              echo "✅ Successfully deployed $api_name"
-            else
-              echo "❌ Failed to deploy $api_name"
-              exit 1
-            fi
-            
-            rm -f "$temp_file"
-          fi
-        done
-    
-    - name: Reload Gateway
-      run: |
-        echo "Reloading Tyk Gateway..."
-        
-        curl -s -X GET \
-          -H "Authorization: ${{ secrets.TYK_LOCAL_API_KEY }}" \
-          "http://localhost:3000/api/reload/group"
-        
-        echo "✅ Gateway reload requested"
-    
-    - name: List deployed APIs
-      run: |
-        echo "APIs in Tyk Dashboard:"
-        curl -s -H "Authorization: ${{ secrets.TYK_LOCAL_API_KEY }}" \
-          "http://localhost:3000/api/apis" | python3 -m json.tool
-        
-        echo "🎉 Deployment completed!"
+        env:
+          TYK_AUTH: ${{ secrets.TYK_AUTH }}
