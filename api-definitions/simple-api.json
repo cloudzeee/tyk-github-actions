@@ -1,0 +1,13 @@
+{
+  "api_definition": {
+    "name": "Simple API",
+    "api_id": "simple-api-123",
+    "org_id": "680ece563e0b4d00011563cb",
+    "proxy": {
+      "target_url": "https://httpbin.org/",
+      "listen_path": "/simple-api/"
+    },
+    "active": true,
+    "use_keyless": true
+  }
+}
