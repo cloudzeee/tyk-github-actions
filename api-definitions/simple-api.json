@@ -1,21 +1,23 @@
 {
-  "api_definition": {
-    "name": "simple-api",
-    "api_id": "simple-api",
-    "org_id": "default",
-    "proxy": {
-      "listen_path": "/simple-api/",
-      "target_url": "http://httpbin.org",
-      "strip_listen_path": true
-    },
-    "version_data": {
-      "not_versioned": true,
-      "versions": {
-        "Default": {
-          "name": "Default"
-        }
+  "name": "simple-api",
+  "api_id": "simple-api",
+  "org_id": "default",
+  "definition": {
+    "location": "header",
+    "key": "version"
+  },
+  "version_data": {
+    "not_versioned": true,
+    "versions": {
+      "Default": {
+        "name": "Default"
       }
-    },
-    "active": true
-  }
+    }
+  },
+  "proxy": {
+    "listen_path": "/simple-api/",
+    "target_url": "http://httpbin.org", 
+    "strip_listen_path": true
+  },
+  "active": true
 }
