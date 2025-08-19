@@ -2,7 +2,7 @@
     "name": "My Local Test API",
     "slug": "my-local-api",
     "api_id": "my-local-api-id",
-    "org_id": "YOUR_LOCAL_ORG_ID",
+    "org_id": "Y680ece563e0b4d00011563cb",
     "use_keyless": false,
     "auth": {
       "auth_header_name": "x-api-key"

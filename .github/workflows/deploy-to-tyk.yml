@@ -1,0 +1,93 @@
+name: Deploy to Tyk
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'api-definitions/**'
+      - 'policies/**'
+  workflow_dispatch:
+
+jobs:
+  deploy-to-tyk:
+    runs-on: self-hosted
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Wait for Tyk services
+      run: |
+        echo "Checking Tyk services..."
+        
+        # Wait for Dashboard
+        timeout 30 bash -c 'until curl -f -s ${{ secrets.TYK_LOCAL_DASHBOARD_URL }}/hello; do sleep 2; done' || {
+          echo "❌ Tyk Dashboard not responding"
+          exit 1
+        }
+        
+        # Wait for Gateway  
+        timeout 30 bash -c 'until curl -f -s ${{ secrets.TYK_LOCAL_GATEWAY_URL }}/hello; do sleep 2; done' || {
+          echo "❌ Tyk Gateway not responding"
+          exit 1
+        }
+        
+        echo "✅ Tyk services are ready"
+    
+    - name: Deploy APIs
+      run: |
+        echo "Deploying API definitions..."
+        
+        for file in api-definitions/*.json; do
+          if [ -f "$file" ]; then
+            echo "Deploying $(basename $file)..."
+            
+            # Replace ORG_ID placeholder
+            temp_file=$(mktemp)
+            sed "s/REPLACE_WITH_YOUR_ORG_ID/${{ secrets.TYK_LOCAL_ORG_ID }}/g" "$file" > "$temp_file"
+            
+            # Deploy to Tyk
+            response=$(curl -s -w "%{http_code}" -o /tmp/response.json \
+              -X POST \
+              -H "Authorization: ${{ secrets.TYK_LOCAL_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d @"$temp_file" \
+              "${{ secrets.TYK_LOCAL_DASHBOARD_URL }}/api/apis")
+            
+            http_code=$(tail -n1 <<< "$response")
+            
+            if [[ $http_code == "200" || $http_code == "201" ]]; then
+              echo "✅ Successfully deployed $(basename $file)"
+            else
+              echo "❌ Failed to deploy $(basename $file) - HTTP $http_code"
+              cat /tmp/response.json
+              exit 1
+            fi
+            
+            rm -f "$temp_file"
+          fi
+        done
+    
+    - name: Reload Gateway
+      run: |
+        echo "Reloading Tyk Gateway..."
+        curl -s -X GET \
+          -H "Authorization: ${{ secrets.TYK_LOCAL_API_KEY }}" \
+          "${{ secrets.TYK_LOCAL_DASHBOARD_URL }}/api/reload/group"
+        echo "✅ Gateway reloaded"
+    
+    - name: Test deployed API
+      run: |
+        echo "Testing deployed API..."
+        sleep 3
+        
+        # Test API (should return 401 without key)
+        test_response=$(curl -s -w "%{http_code}" -o /dev/null "${{ secrets.TYK_LOCAL_GATEWAY_URL }}/my-first-api/get")
+        
+        if [[ $test_response == "401" ]]; then
+          echo "✅ API is secured and working (401 Unauthorized as expected)"
+        elif [[ $test_response == "200" ]]; then
+          echo "✅ API is working"
+        else
+          echo "⚠️  API returned HTTP $test_response"
+        fi
