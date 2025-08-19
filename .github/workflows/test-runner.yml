@@ -1,31 +1,16 @@
-name: Test Tyk Connection
+name: Test Self-Hosted Runner
 
 on:
-  workflow_dispatch: # Manual trigger only
+  push:
+    branches:
+      - main
 
 jobs:
-  test-connection:
-    runs-on: self-hosted  # or ubuntu-latest if using ngrok
-    
+  test:
+    runs-on: self-hosted
     steps:
-    - name: Test Tyk Connection
-      run: |
-        echo "Testing Tyk Dashboard connection..."
-        
-        # Test Dashboard API
-        if curl -f -s -H "Authorization: ${{ secrets.TYK_LOCAL_API_KEY }}" "${{ secrets.TYK_LOCAL_DASHBOARD_URL }}/api/apis" > /dev/null; then
-          echo "✅ Dashboard connection successful"
-        else
-          echo "❌ Dashboard connection failed"
-          exit 1
-        fi
-        
-        # Test Gateway
-        if curl -f -s "${{ secrets.TYK_LOCAL_GATEWAY_URL }}/hello" > /dev/null; then
-          echo "✅ Gateway connection successful"
-        else
-          echo "❌ Gateway connection failed"
-          exit 1
-        fi
-        
-        echo "🎉 All connections working!"
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Run a test command
+        run: echo "Hello from my self-hosted runner on $(hostname)"
