@@ -24,15 +24,14 @@ jobs:
         if curl -f -s http://localhost:3000/hello > /dev/null 2>&1; then
           echo "✅ Tyk Dashboard is responding"
         else
-          echo "❌ Tyk Dashboard not responding at http://localhost:3000"
-          echo "Please start your Tyk services first"
+          echo "❌ Tyk Dashboard not responding"
           exit 1
         fi
         
         if curl -f -s http://localhost:8080/hello > /dev/null 2>&1; then
           echo "✅ Tyk Gateway is responding"  
         else
-          echo "❌ Tyk Gateway not responding at http://localhost:8080"
+          echo "❌ Tyk Gateway not responding"
           exit 1
         fi
     
@@ -41,34 +40,29 @@ jobs:
         echo "Validating API definitions..."
         
         if ! ls api-definitions/*.json 1> /dev/null 2>&1; then
-          echo "ℹ️  No API definitions found to deploy"
+          echo "No API definitions found"
           exit 0
         fi
         
         for file in api-definitions/*.json; do
           echo "Validating $(basename $file)..."
           if python3 -m json.tool "$file" > /dev/null 2>&1; then
-            echo "✅ $(basename $file) is valid JSON"
+            echo "✅ $(basename $file) is valid"
           else
-            echo "❌ $(basename $file) is invalid JSON"
+            echo "❌ $(basename $file) is invalid"
             exit 1
           fi
         done
     
     - name: Deploy APIs to Tyk
       run: |
-        echo "🚀 Starting API deployment..."
-        
-        deployed_count=0
-        failed_count=0
+        echo "Starting API deployment..."
         
         for file in api-definitions/*.json; do
           if [ -f "$file" ]; then
             api_name=$(basename "$file" .json)
-            echo ""
-            echo "📦 Deploying $api_name..."
+            echo "Deploying $api_name..."
             
-            # Replace org_id placeholder if it exists
             temp_file=$(mktemp)
             if [ -n "${{ secrets.TYK_LOCAL_ORG_ID }}" ]; then
               sed "s/REPLACE_WITH_YOUR_ORG_ID/${{ secrets.TYK_LOCAL_ORG_ID }}/g" "$file" > "$temp_file"
@@ -76,11 +70,6 @@ jobs:
               cp "$file" "$temp_file"
             fi
             
-            echo "API definition to deploy:"
-            cat "$temp_file" | python3 -m json.tool
-            echo "---"
-            
-            # Deploy to Tyk Dashboard
             response=$(curl -s -w "%{http_code}" -o /tmp/deploy_response.json \
               -X POST \
               -H "Authorization: ${{ secrets.TYK_LOCAL_API_KEY }}" \
@@ -90,74 +79,34 @@ jobs:
             
             http_code=$(tail -n1 <<< "$response")
             
-            echo "Response HTTP Code: $http_code"
-            echo "Response Body:"
-            cat /tmp/deploy_response.json | python3 -m json.tool 2>/dev/null || cat /tmp/deploy_response.json
-            echo ""
+            echo "Response Code: $http_code"
+            cat /tmp/deploy_response.json
             
             if [[ $http_code == "200" || $http_code == "201" ]]; then
               echo "✅ Successfully deployed $api_name"
-              deployed_count=$((deployed_count + 1))
             else
               echo "❌ Failed to deploy $api_name"
-              failed_count=$((failed_count + 1))
+              exit 1
             fi
             
             rm -f "$temp_file"
           fi
         done
-        
-        echo ""
-        echo "📊 Deployment Summary:"
-        echo "   ✅ Deployed: $deployed_count APIs"
-        echo "   ❌ Failed: $failed_count APIs"
-        
-        if [ $failed_count -gt 0 ]; then
-          exit 1
-        fi
     
-    - name: Hot reload Tyk Gateway
+    - name: Reload Gateway
       run: |
-        echo "🔄 Reloading Tyk Gateway..."
+        echo "Reloading Tyk Gateway..."
         
-        reload_response=$(curl -s -w "%{http_code}" -o /tmp/reload_response.json \
-          -X GET \
+        curl -s -X GET \
           -H "Authorization: ${{ secrets.TYK_LOCAL_API_KEY }}" \
-          "http://localhost:3000/api/reload/group")
+          "http://localhost:3000/api/reload/group"
         
-        reload_code=$(tail -n1 <<< "$reload_response")
-        
-        echo "Reload Response Code: $reload_code"
-        cat /tmp/reload_response.json 2>/dev/null || echo "No response body"
-        
-        if [[ $reload_code == "200" ]]; then
-          echo "✅ Gateway reloaded successfully"
-        else
-          echo "⚠️  Gateway reload returned HTTP $reload_code (might still work)"
-        fi
+        echo "✅ Gateway reload requested"
     
-    - name: Test deployed APIs
+    - name: List deployed APIs
       run: |
-        echo "🧪 Testing deployed APIs..."
-        sleep 2  # Wait for reload to complete
-        
-        # List APIs in Tyk to verify deployment
-        echo "APIs now in Tyk Dashboard:"
+        echo "APIs in Tyk Dashboard:"
         curl -s -H "Authorization: ${{ secrets.TYK_LOCAL_API_KEY }}" \
-          "http://localhost:3000/api/apis" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    if 'apis' in data:
-        for api in data['apis']:
-            print(f\"  - {api.get('name', 'Unknown')} (ID: {api.get('api_id', 'Unknown')})\")
-    else:
-        print('  No APIs found or unexpected response format')
-except:
-    print('  Could not parse API list')
-"
+          "http://localhost:3000/api/apis" | python3 -m json.tool
         
-        echo ""
         echo "🎉 Deployment completed!"
-        echo "   Dashboard: http://localhost:3000"
-        echo "   Gateway: http://localhost:8080"
