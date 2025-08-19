@@ -16,23 +16,42 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
     
-    - name: Wait for Tyk services
+    - name: Check Tyk services
       run: |
         echo "Checking Tyk services..."
         
-        # Wait for Dashboard
-        timeout 30 bash -c 'until curl -f -s ${{ secrets.TYK_LOCAL_DASHBOARD_URL }}/hello; do sleep 2; done' || {
-          echo "❌ Tyk Dashboard not responding"
+        # Check Dashboard (macOS compatible)
+        if curl -f -s ${{ secrets.TYK_LOCAL_DASHBOARD_URL }}/hello > /dev/null 2>&1; then
+          echo "✅ Tyk Dashboard is responding"
+        else
+          echo "❌ Tyk Dashboard not responding at ${{ secrets.TYK_LOCAL_DASHBOARD_URL }}"
+          echo "Make sure your Tyk services are running locally"
           exit 1
-        }
+        fi
         
-        # Wait for Gateway  
-        timeout 30 bash -c 'until curl -f -s ${{ secrets.TYK_LOCAL_GATEWAY_URL }}/hello; do sleep 2; done' || {
-          echo "❌ Tyk Gateway not responding"
+        # Check Gateway
+        if curl -f -s ${{ secrets.TYK_LOCAL_GATEWAY_URL }}/hello > /dev/null 2>&1; then
+          echo "✅ Tyk Gateway is responding"
+        else
+          echo "❌ Tyk Gateway not responding at ${{ secrets.TYK_LOCAL_GATEWAY_URL }}"
+          echo "Make sure your Tyk Gateway is running locally"
           exit 1
-        }
+        fi
+    
+    - name: Validate API definitions
+      run: |
+        echo "Validating API definitions..."
         
-        echo "✅ Tyk services are ready"
+        for file in api-definitions/*.json; do
+          if [ -f "$file" ]; then
+            if python3 -m json.tool "$file" > /dev/null 2>&1; then
+              echo "✅ $(basename $file) is valid JSON"
+            else
+              echo "❌ $(basename $file) is invalid JSON"
+              exit 1
+            fi
+          fi
+        done
     
     - name: Deploy APIs
       run: |
@@ -60,6 +79,7 @@ jobs:
               echo "✅ Successfully deployed $(basename $file)"
             else
               echo "❌ Failed to deploy $(basename $file) - HTTP $http_code"
+              echo "Response:"
               cat /tmp/response.json
               exit 1
             fi
@@ -71,10 +91,18 @@ jobs:
     - name: Reload Gateway
       run: |
         echo "Reloading Tyk Gateway..."
-        curl -s -X GET \
+        reload_response=$(curl -s -w "%{http_code}" -o /tmp/reload.json \
+          -X GET \
           -H "Authorization: ${{ secrets.TYK_LOCAL_API_KEY }}" \
-          "${{ secrets.TYK_LOCAL_DASHBOARD_URL }}/api/reload/group"
-        echo "✅ Gateway reloaded"
+          "${{ secrets.TYK_LOCAL_DASHBOARD_URL }}/api/reload/group")
+        
+        reload_code=$(tail -n1 <<< "$reload_response")
+        
+        if [[ $reload_code == "200" ]]; then
+          echo "✅ Gateway reloaded successfully"
+        else
+          echo "⚠️  Reload returned HTTP $reload_code"
+        fi
     
     - name: Test deployed API
       run: |
@@ -82,12 +110,15 @@ jobs:
         sleep 3
         
         # Test API (should return 401 without key)
-        test_response=$(curl -s -w "%{http_code}" -o /dev/null "${{ secrets.TYK_LOCAL_GATEWAY_URL }}/my-first-api/get")
+        test_response=$(curl -s -w "%{http_code}" -o /dev/null \
+          "${{ secrets.TYK_LOCAL_GATEWAY_URL }}/my-first-api/get" 2>/dev/null || echo "000")
         
         if [[ $test_response == "401" ]]; then
           echo "✅ API is secured and working (401 Unauthorized as expected)"
         elif [[ $test_response == "200" ]]; then
-          echo "✅ API is working"
+          echo "✅ API is working and accessible"
         else
-          echo "⚠️  API returned HTTP $test_response"
+          echo "⚠️  API test returned HTTP $test_response"
         fi
+        
+        echo "🎉 Deployment completed!"
