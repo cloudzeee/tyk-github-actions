@@ -2,11 +2,8 @@ name: Deploy to Tyk
 
 on:
   push:
-    branches: [ main ]
-    paths:
-      - 'api-definitions/**'
-      - 'policies/**'
-  workflow_dispatch:
+    branches: [ main ]  # Trigger on ANY push to main
+  workflow_dispatch:    # Also allow manual trigger
 
 jobs:
   deploy-to-tyk:
@@ -16,12 +13,22 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
     
+    - name: Check if APIs exist
+      run: |
+        echo "Checking for API definitions..."
+        if ls api-definitions/*.json 1> /dev/null 2>&1; then
+          echo "✅ Found API definitions to deploy"
+        else
+          echo "ℹ️  No API definitions found - creating example"
+          mkdir -p api-definitions
+          exit 0
+        fi
+    
     - name: Check Tyk services
       run: |
         echo "Checking Tyk services..."
         
-        # Simple check without timeout
-        if curl -f -s http://localhost:3000/hello; then
+        if curl -f -s http://localhost:3000/hello > /dev/null 2>&1; then
           echo "✅ Tyk Dashboard is responding"
         else
           echo "❌ Tyk Dashboard not responding"
@@ -29,24 +36,14 @@ jobs:
           exit 1
         fi
         
-        if curl -f -s http://localhost:8080/hello; then
-          echo "✅ Tyk Gateway is responding"
+        if curl -f -s http://localhost:8080/hello > /dev/null 2>&1; then
+          echo "✅ Tyk Gateway is responding"  
         else
           echo "❌ Tyk Gateway not responding"
-          echo "Please start your Tyk Gateway first"
           exit 1
         fi
     
-    - name: Deploy APIs
+    - name: List API files
       run: |
-        echo "Deploying API definitions..."
-        echo "Files found:"
-        ls -la api-definitions/
-        
-        for file in api-definitions/*.json; do
-          if [ -f "$file" ]; then
-            echo "Processing $(basename $file)..."
-            cat "$file"
-            echo "---"
-          fi
-        done
+        echo "API definition files:"
+        ls -la api-definitions/ || echo "No api-definitions folder"
